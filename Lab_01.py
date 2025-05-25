@@ -420,33 +420,112 @@
 # зображення після видалення шуму та результат бінарізації.
 
 
+# import cv2
+#
+# image = cv2.imread('data/lesson3/notes.png')
+#
+# gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+#
+# # blur = cv2.GaussianBlur(gray,(3,3),10)
+# blur = cv2.bilateralFilter(gray,  # оригільне зображення
+#                               d=5,  # розмір ядра\фільра\рамки
+#                               sigmaColor=75,  # впливає на коефіцієнт за кольором
+#                               sigmaSpace=75,  # вплива на коефіцієнти як в гауса
+#                               )
+#
+#
+# result2 = cv2.adaptiveThreshold(blur,  # оригільне зображення(чорнобіле)
+#                                 255, # інтенсивність пікселів білого кольору
+#                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # алгоритм як рахувати threshold
+#                                 cv2.THRESH_BINARY,  # тип бінарізації
+#                                 11,  # розмір ядра\фільра\рамки
+#                                 2,  # наскільки сильною є бінарізацію
+#                                 )
+#
+# cv2.imshow('result2', result2)
+#
+# cv2.imshow('image', image)
+# cv2.imshow('gray', gray)
+# cv2.waitKey(0)
+
+
 import cv2
+import numpy as np
+import utils
 
-image = cv2.imread('data/lesson3/notes.png')
+# в opencv кольорове зображення у форматі BGR
+img = cv2.imread("data/lesson4/castello.png")
 
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+# межі шукають на чорнобілому зображені
+# gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#
+# kernel = np.array([[-1, 0, 1],
+#                    [-2, 0, 2],
+#                    [-1, 0, 1]])
+#
+# vert = cv2.filter2D(gray, -1, kernel)
+#
+# kernel = np.array([[-1, -2, -1],
+#                    [0, 0, 0],
+#                    [1, 2, 1]])
+#
+# horiz = cv2.filter2D(gray, -1, kernel)
+#
+# cv2.imshow("original", img)
+# cv2.imshow("vertical", vert)
+# cv2.imshow("horizontal", horiz)
+# cv2.waitKey(0)
 
-# blur = cv2.GaussianBlur(gray,(3,3),10)
-blur = cv2.bilateralFilter(gray,  # оригільне зображення
-                              d=5,  # розмір ядра\фільра\рамки
-                              sigmaColor=75,  # впливає на коефіцієнт за кольором
-                              sigmaSpace=75,  # вплива на коефіцієнти як в гауса
-                              )
+# пошук меж
+
+# edged = cv2.Canny(gray,  # зображення де шукаємо межі
+#                   100,  # нижня межі інтенсивності межі
+#                   150   # верхня межі інтенсивності межі
+#                   )
+#
+# cv2.imshow("original", img)
+# cv2.imshow("edged", edged)
+# cv2.waitKey(0)
+
+# функція для меж
+
+# @utils.trackbar_decorator(lower=(0, 255), upper=(0, 255))
+# def func(img, lower, upper):
+#     # перетворення в чорнобіле зображення
+#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#
+#     # розмити зображення
+#     gray = cv2.GaussianBlur(gray,
+#                             (5, 5),
+#                             sigmaX=2)
+#
+#     # алгоритм Canny(пошук меж)
+#     edged = cv2.Canny(gray, lower, upper)
+#
+#     return edged
+#
+# func(img)
 
 
-result2 = cv2.adaptiveThreshold(blur,  # оригільне зображення(чорнобіле)
-                                255, # інтенсивність пікселів білого кольору
-                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,  # алгоритм як рахувати threshold
-                                cv2.THRESH_BINARY,  # тип бінарізації
-                                11,  # розмір ядра\фільра\рамки
-                                2,  # наскільки сильною є бінарізацію
-                                )
+img = cv2.imread("data/lesson4/j.png", cv2.IMREAD_GRAYSCALE)
 
-cv2.imshow('result2', result2)
+# ерозія
+# якщо навколо пікселя є хоча б один чорний -- то піксель стає чорним
 
-cv2.imshow('image', image)
-cv2.imshow('gray', gray)
+# піксель по сусідству -- в сежах квадрату 3х3
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+eroded = cv2.erode(img, kernel)
+
+# dilate(розширення?)
+# якщо навколо пікселя є хоча б один білий -- то піксель стає білим
+dilated = cv2.dilate(img, kernel)
+
+
+both = cv2.erode(img, kernel)
+both = cv2.dilate(both, kernel, iterations=2)
+
+cv2.imshow("original", img)
+cv2.imshow("eroded", eroded)
+cv2.imshow("dilate", dilated)
+cv2.imshow("both", both)
 cv2.waitKey(0)
-
-
-
