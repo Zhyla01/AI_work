@@ -8,147 +8,130 @@
 # (два пальці і великий вбік)	Зміна кольору (червоний → зелений → синій)
 # Три пальці (індекс, середній, безіменний)	Гумка (стирає)
 
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import logging
-logging.getLogger('absl').setLevel(logging.ERROR)
-import absl.logging
-absl.logging.set_verbosity(absl.logging.ERROR)
-
 import cv2
 import numpy as np
+import os
 import time
 import mediapipe as mp
 
-#Налаштування
+#Параметри
 slide_folder = "slides"
-color_list = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]  # Red, Green, Blue
 color_index = 0
-draw_color = color_list[color_index]
-gesture_start_time = 0
-gesture_active = False
-
-#Завантаження слайдів
-if not os.path.exists(slide_folder):
-    raise FileNotFoundError("Створи папку 'slides' з картинками (jpg/png)")
-
-slides = [cv2.imread(f"{slide_folder}/{img}") for img in sorted(os.listdir(slide_folder)) if img.endswith(('.png', '.jpg'))]
-if not slides:
-    raise FileNotFoundError("У папці 'slides' немає жодного .png або .jpg слайду")
-
-#Розміри слайда
-h, w, _ = slides[0].shape
-canvas = np.zeros((h, w, 3), dtype=np.uint8)
+color = colors[color_index]
 
 #MediaPipe
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 mp_draw = mp.solutions.drawing_utils
 
-cap = cv2.VideoCapture(0)
+#Завантаження слайдів
+slides = [cv2.imread(f"{slide_folder}/{img}") for img in sorted(os.listdir(slide_folder)) if img.endswith(('.png', '.jpg'))]
+if not slides:
+    raise Exception("Слайди не знайдено. Помісти зображення у папку 'slides'")
 slide_index = 0
-last_point = None
 
+#Камера
+cap = cv2.VideoCapture(0)
+canvas = np.zeros_like(slides[0])
+drawing = False
+prev_point = None
+last_gesture_time = 0
+gesture_delay = 1
+
+#Визначення жестів
 def fingers_up(hand_landmarks):
-    fingers = []
+    finger_tips = [8, 12, 16, 20]
+    finger_states = []
 
-    tips = [4, 8, 12, 16, 20]
-    for i in range(1, 5):
-        fingers.append(hand_landmarks.landmark[tips[i]].y < hand_landmarks.landmark[tips[i]-2].y)
-    thumb = hand_landmarks.landmark[4].x > hand_landmarks.landmark[3].x
+    for tip in finger_tips:
+        if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[tip - 2].y:
+            finger_states.append(1)  # палець піднято
+        else:
+            finger_states.append(0)
 
-    fingers.insert(0, thumb)
-    return fingers
+    thumb = hand_landmarks.landmark[4]
+    thumb_tip = hand_landmarks.landmark[4]
+    thumb_base = hand_landmarks.landmark[2]
+    thumb_extended = abs(thumb_tip.x - thumb_base.x) > 0.1
 
-def detect_gesture(fingers):
-    total = sum(fingers)
-    if total == 5:
-        return "open_hand"
-    elif fingers[1] and not fingers[2] and not fingers[3]:
-        return "next_slide"
-    elif fingers[0] and not fingers[1] and not fingers[2]:
-        return "prev_slide"
-    elif fingers[1] and fingers[2] and not fingers[0]:
-        return "draw"
-    elif fingers[0] and fingers[1] and fingers[2]:
-        return "change_color"
-    elif fingers[1] and fingers[2] and fingers[3]:
-        return "erase"
-    else:
-        return "none"
+    return finger_states, thumb_extended
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
+
     frame = cv2.flip(frame, 1)
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = hands.process(rgb)
+    current_time = time.time()
+    h, w, _ = frame.shape
 
-    gesture = "none"
+    #Визначення жесту
     if result.multi_hand_landmarks:
-        hand_landmarks = result.multi_hand_landmarks[0]
-        mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+        for handLms in result.multi_hand_landmarks:
+            mp_draw.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
+            fingers, thumb_extended = fingers_up(handLms)
+            index_finger = handLms.landmark[8]
+            x, y = int(index_finger.x * w), int(index_finger.y * h)
 
-        fingers = fingers_up(hand_landmarks)
-        gesture = detect_gesture(fingers)
+            #Жести
+            if all(fingers):  # Відкрита долоня — почати показ
+                if current_time - last_gesture_time > gesture_delay:
+                    canvas = np.zeros_like(slides[0])
+                    slide_index = 0
+                    last_gesture_time = current_time
 
-        x = int(hand_landmarks.landmark[8].x * w)
-        y = int(hand_landmarks.landmark[8].y * h)
-
-        if gesture != "none":
-            if not gesture_active:
-                gesture_active = True
-                gesture_start_time = time.time()
-            elif time.time() - gesture_start_time > 1:
-                if gesture == "open_hand":
-                    canvas = np.zeros((h, w, 3), dtype=np.uint8)
-                elif gesture == "next_slide":
+            elif fingers == [1, 0, 0, 0]:  # Вказівний палець — наступний слайд
+                if current_time - last_gesture_time > gesture_delay:
                     slide_index = min(slide_index + 1, len(slides) - 1)
-                elif gesture == "prev_slide":
+                    last_gesture_time = current_time
+
+            elif fingers == [0, 0, 0, 0] and thumb_extended:  # Великий палець — попередній слайд
+                if current_time - last_gesture_time > gesture_delay:
                     slide_index = max(slide_index - 1, 0)
-                elif gesture == "change_color":
-                    color_index = (color_index + 1) % len(color_list)
-                    draw_color = color_list[color_index]
-                gesture_active = False
-        else:
-            gesture_active = False
+                    last_gesture_time = current_time
 
-        #Малювання
-        if gesture == "draw":
-            if last_point:
-                cv2.line(canvas, last_point, (x, y), draw_color, 5)
-            last_point = (x, y)
-        elif gesture == "erase":
-            cv2.circle(canvas, (x, y), 20, (0, 0, 0), -1)
-            last_point = None
-        else:
-            last_point = None
+            elif fingers[:2] == [1, 1]:  # Вказівний + середній — малювання
+                if thumb_extended:  # Зміна кольору
+                    if current_time - last_gesture_time > gesture_delay:
+                        color_index = (color_index + 1) % len(colors)
+                        color = colors[color_index]
+                        last_gesture_time = current_time
+                else:
+                    drawing = True
+                    if prev_point:
+                        cv2.line(canvas, prev_point, (x, y), color, 5)
+                    prev_point = (x, y)
+                    # Показати точку малювання
+                    cv2.circle(frame, (x, y), 10, color, -1)
+            else:
+                drawing = False
+                prev_point = None
 
-    else:
-        gesture_active = False
-        last_point = None
-
-    #Об'єднання з презентацією
+    #Маска для малювання
+    gray_canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray_canvas, 10, 255, cv2.THRESH_BINARY)
+    mask_inv = cv2.bitwise_not(mask)
     slide = slides[slide_index].copy()
-    mask = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
-    _, inv_mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
-    inv_mask = cv2.cvtColor(inv_mask, cv2.COLOR_GRAY2BGR)
-    slide = cv2.bitwise_and(slide, 255 - inv_mask)
-    slide = cv2.bitwise_or(slide, canvas)
+    slide_bg = cv2.bitwise_and(slide, slide, mask=mask_inv)
+    canvas_fg = cv2.bitwise_and(canvas, canvas, mask=mask)
+    combined = cv2.add(slide_bg, canvas_fg)
 
-    #Показ
-    cv2.imshow("Presentation", slide)
-    cv2.imshow("Camera", frame)
-    # cv2.imshow("Canvas", canvas)  # для дебагу
+    #Показ поточного кольору
+    cv2.rectangle(combined, (10, 10), (60, 60), color, -1)
+    cv2.putText(combined, 'Color', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
 
-    if cv2.waitKey(1) & 0xFF == 27:
+    #Показ результату
+    cv2.imshow("Presentation", combined)
+    cv2.imshow("Webcam", frame)
+
+    key = cv2.waitKey(1)
+    if key == 27:
         break
 
 cap.release()
 cv2.destroyAllWindows()
-
-
-
 
 
